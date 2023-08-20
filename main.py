@@ -91,7 +91,8 @@ class Chimpcom:
         data = {
             "action_id": self.action_id,
             "cmd_in": "",
-            "content": content
+            "content": content,
+            "format": "cli"
         }
 
         headers = {
