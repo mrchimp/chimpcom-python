@@ -65,7 +65,11 @@ class Chimpcom:
         r = requests.post(self.args.url, headers=headers, json=data)
 
         res = r.json();
-        self.action_id = res['action_id'];
+
+        try:
+            self.action_id = res['action_id'];
+        except KeyError:
+            self.action_id = None;
 
         if r.status_code == 200:
             if res['edit_content']:
