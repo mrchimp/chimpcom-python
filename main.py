@@ -7,114 +7,132 @@ import requests
 import subprocess
 import sys
 import tempfile
+from cmd import Cmd
 from getpass import getpass
 
-class Chimpcom:
-    def __init__(self) :
-        self.action_id = None
+
+class Chimpcom(Cmd):
+    intro = "Hello!\n"
+    prompt = "> "
+    username = ""
+    file = None
+    action_id = None
+    args = None
+    token = None
+
+    def __init__(self, completekey="tab", stdin=None, stdout=None):
+        super().__init__()
+
         parser = argparse.ArgumentParser(description="Send Chimpcom command")
-        parser.add_argument("--token", action=argparse.BooleanOptionalAction)
+        parser.add_argument("--token", action="store_true")
+        parser.add_argument("--cleartoken", action="store_true")
         parser.add_argument("--url", default="https://deviouschimp.co.uk/api/respond")
         parser.add_argument("--username", nargs="?")
         parser.add_argument("command", nargs="*")
         self.args = parser.parse_args()
+        self.username = self.args.username
+        service_id = "chimpcom" + self.args.url
 
-        username = self.args.username
+        if self.args.cleartoken:
+            keyring.delete_password(service_id, self.username)
+            print("Token cleared.")
+            sys.exit()
 
-        if not username:
-            username = input("Username: ")
+        if not self.username:
+            self.username = input("Username: ")
 
-        service_id = "chimpcom"+self.args.url
-        token = keyring.get_password(service_id, username)
+        self.token = keyring.get_password(service_id, self.username)
 
-        if not token or self.args.token:
-            token = getpass("Enter your token: ")
+        if not self.token or self.args.token:
+            self.token = getpass("Enter your token: ")
 
-        if not token:
+        if not self.token:
             print("No token.")
             sys.exit(1)
 
-        keyring.set_password(service_id, username, token)
+        keyring.set_password(service_id, self.username, self.token)
 
         # Single command
         if self.args.command:
-            self.get_response(" ".join(self.args.command), token)
+            self.get_response(" ".join(self.args.command))
             sys.exit()
 
-        # Interactive
-        while True:
-            cmd_in = input("> ")
-            if cmd_in == "exit":
-                sys.exit()
-            self.get_response(cmd_in, token)
+    def default(self, line):
+        self.get_response(line)
 
-    def get_response(self, cmd_in, token):
-        data = {
-            "action_id": self.action_id,
-            "cmd_in": cmd_in,
-            "format": "cli"
-        }
+    def get_response(self, cmd_in):
+        r = self.make_request(
+            {"action_id": self.action_id, "cmd_in": cmd_in, "format": "cli"}
+        )
 
-        headers = {
-            "Authorization": "Bearer " + token,
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-            "X-Requested-With": "XMLHttpRequest",
-        }
-
-        r = requests.post(self.args.url, headers=headers, json=data)
-
-        res = r.json();
-
-        try:
-            self.action_id = res['action_id'];
-        except KeyError:
-            self.action_id = None;
+        res = r.json()
 
         if r.status_code == 200:
-            if res['edit_content']:
-                tmp = tempfile.NamedTemporaryFile( mode = "w", delete=False )
-                tmp.write( res['edit_content'] )
+            self.action_id = res["action_id"]
+
+            if res["edit_content"]:
+                tmp = tempfile.NamedTemporaryFile(mode="w", delete=False)
+                tmp.write(res["edit_content"])
                 tmp.close()
 
-                subprocess.call( [ os.environ.get('EDITOR', '') or 'vi', tmp.name ] )
+                subprocess.call([os.environ.get("EDITOR", "") or "vi", tmp.name])
 
-                tmp = open(tmp.name, 'r')
+                tmp = open(tmp.name, "r")
                 updated_content = tmp.read()
                 tmp.close()
                 os.remove(tmp.name)
 
-                self.save_content(updated_content, token)
+                self.save_content(updated_content)
             else:
-                print(res['cmd_out'])
+                print(res["cmd_out"])
         else:
+            self.action_id = None
             print("Error " + str(r.status_code) + ". Invalid URL?")
 
-
-    def save_content(self, content, token):
-        data = {
+    def save_content(self, content):
+        params = {
             "action_id": self.action_id,
             "cmd_in": "",
             "content": content,
-            "format": "cli"
+            "format": "cli",
         }
 
+        print("Sending content...")
+
+        r = self.make_request(params)
+        res = r.json()
+        self.action_id = res["action_id"]
+
+        if r.status_code == 200:
+            print(res["cmd_out"])
+        else:
+            print("Error " + str(r.status_code) + ". Invalid URL?")
+
+    def make_request(self, json):
         headers = {
-            "Authorization": "Bearer " + token,
+            "Authorization": "Bearer " + self.token,
             "Content-Type": "application/json",
             "Accept": "application/json",
             "X-Requested-With": "XMLHttpRequest",
         }
 
-        print("Sending content...")
+        return requests.post(self.args.url, headers=headers, json=json)
 
-        r = requests.post(self.args.url, headers=headers, json=data)
-        res = r.json()
-        self.action_id = res['action_id']
+    def do_clear(self, args):
+        print("Not implemented yet.")
 
-        if r.status_code == 200:
-            print(res['cmd_out'])
-        else:
-            print("Error " + str(r.status_code) + ". Invalid URL?")
+    def do_quit(self, args):
+        return self.do_exit(args)
 
-cmd = Chimpcom()
+    def do_exit(self, args):
+        "Exit Chimpcom CLI"
+        print("Bye!")
+        return True
+
+
+def parse(arg):
+    return tuple(map(int, arg.split()))
+
+
+if __name__ == "__main__":
+    Chimpcom("tab", None, None).cmdloop()
