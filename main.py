@@ -70,7 +70,7 @@ class Chimpcom(Cmd):
         if r.status_code == 200:
             self.action_id = res["action_id"]
 
-            if res["edit_content"]:
+            if res["edit_content"] is not None:
                 tmp = tempfile.NamedTemporaryFile(mode="w", delete=False)
                 tmp.write(res["edit_content"])
                 tmp.close()
